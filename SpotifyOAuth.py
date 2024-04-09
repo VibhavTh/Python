@@ -1,50 +1,68 @@
 import spotipy
-import spotipy.util as util
-import requests
+from spotipy.oauth2 import SpotifyOAuth
+from flask import Flask, url_for, session, request, redirect
+import json
+import time
+import pandas as pd
 
-# Spotify API credentials
-CLIENT_ID = '92dfa2d52c004ffc851bd04488ac9f2d'
-CLIENT_SECRET = 'b8d4a6ebd0ce48b2a9355c4c530e90b9'
-REDIRECT_URI = 'http://127.0.0.1:5000'
-SCOPE = 'playlist-modify-public playlist-modify-private'
+ # Credentials you get from registering a new application
+client_id = '92dfa2d52c004ffc851bd04488ac9f2d'
+client_secret = 'b8d4a6ebd0ce48b2a9355c4c530e90b9'
+redirect_uri = 'http://127.0.0.1:5000/redirect'
+# OAuth endpoints given in the Spotify API documentation
+# https://developer.spotify.com/documentation/general/guides/authorization/code-flow/
+authorization_base_url = "https://accounts.spotify.com/authorize"
+token_url = "https://accounts.spotify.com/api/token"
+# https://developer.spotify.com/documentation/general/guides/authorization/scopes/
+scope = [
+    "user-read-email",
+    "playlist-read-collaborative",
+    "playlist-modify-public",
+    "playlist-modify-private"
+]
 
-# Get authorization from the user
-def get_spotify_auth():
-    token = util.prompt_for_user_token(
-        username=None,
-        scope=SCOPE,
-        client_id=CLIENT_ID,
-        client_secret=CLIENT_SECRET,
-        redirect_uri=REDIRECT_URI
-    )
-    return token
+from requests_oauthlib import OAuth2Session
+spotify = OAuth2Session(client_id, scope=scope, redirect_uri=redirect_uri)
 
-# Create playlist for the authenticated user
-def create_playlist(access_token, playlist_name, public=True):
-    headers = {
-        'Authorization': f'Bearer {access_token}',
-        'Content-Type': 'application/json'
-    }
-    data = {
-        'name': playlist_name,
-        'public': public
-    }
-    response = requests.post('https://api.spotify.com/v1/me/playlists', headers=headers, json=data)
-    if response.status_code == 201:
-        print("Playlist created successfully!")
+app = Flask(__name__)
+# Redirect user to Spotify for authorization
+authorization_url, state = spotify.authorization_url(authorization_base_url)
+print('Please go here and authorize: ', authorization_url)
+
+@app.route('/')
+def index():
+    return redirect(authorization_url)
+
+@app.route('/redirect')
+def redirect_page():
+    redirect_response = request.url
+    token = spotify.fetch_token(token_url, auth=auth, authorization_response=redirect_response)
+    session['token'] = token
+    return redirect('/profile')
+        
+# Get the authorization verifier code from the callback url
+
+from requests.auth import HTTPBasicAuth
+
+auth = HTTPBasicAuth(client_id, client_secret)
+
+@app.route('/profile')
+def profile():
+    if 'token' in session:
+        token = session['token']
+        spotify = OAuth2Session(client_id, token=token)
+        r = spotify.get('https://api.spotify.com/v1/me')
+        return r.text
     else:
-        print("Error creating playlist:", response.text)
+        return 'Token not found!'
 
-def main():
-    # Step 1: Get authorization from the user
-    token = get_spotify_auth()
-    if token:
-        print("Authorization successful!")
-        # Step 2: Create playlist
-        playlist_name = input("Enter playlist name: ")
-        create_playlist(token, playlist_name)
-    else:
-        print("Authorization failed.")
+ # Fetch the access token
 
-if __name__ == "__main__":
-    main()
+
+if __name__ == '__main__':
+    app.secret_key = 'your_secret_key'
+    app.run(debug=True)
+
+
+#!/usr/bin/python3
+
